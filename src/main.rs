@@ -8,11 +8,15 @@ use libp2p::{
     tcp, yamux, PeerId, Transport,
 };
 use libp2p_quic as quic;
-use std::error::Error;
 use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use std::{collections::hash_map::DefaultHasher, net::SocketAddr};
-use tokio::net::TcpListener;
+use std::{error::Error, thread};
+use tokio::{
+    net::TcpListener,
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
+};
+use tokio_tungstenite::tungstenite::Message;
 
 #[derive(NetworkBehaviour)]
 struct MyBehaviour {
@@ -78,28 +82,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Enter messages via STDIN and they will be sent to connected peers using Gossipsub");
 
-    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+    let (sender_dr, mut receiver_dr) = unbounded_channel::<String>();
+    let (sender_rd, receiver_rd) = unbounded_channel::<String>();
+
+    _ = thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async move {
+            ws_to_gossipsub(listener, addr, sender_dr, receiver_rd).await;
+        });
+    });
 
     loop {
         tokio::select! {
-            connection = listener.accept() => {
-                let (stream, addr) = connection?;
-                let sender = sender.clone();
-                tokio::spawn(async move {
-                    println!("Incoming TCP connection from: {}", addr);
-                    let stream = tokio_tungstenite::accept_async(stream)
-                        .await
-                        .expect("Error during the websocket handshake occurred");
-                    println!("WebSocket connection established: {}", addr);
-                    let (mut write, mut read) = stream.split();
-                    while let Some(msg) = read.next().await {
-                        let msg = msg.expect("Failed to get msg");
-                        println!("Received a message from {}: {}", addr, msg);
-                        write.send(msg.clone()).await.expect("Failed to send msg");
-                        sender.send(msg.to_string()).expect("Failed to send msg");
-                    }
-                });
-            },
             line = stdin.select_next_some() => {
                 if let Err(e) = swarm
                     .behaviour_mut().gossipsub
@@ -124,17 +118,52 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     propagation_source: peer_id,
                     message_id: id,
                     message,
-                })) => println!(
+                })) => {
+                    let msg = String::from_utf8_lossy(&message.data);
+                    println!(
                         "Got message: '{}' with id: {id} from peer: {peer_id}",
-                        String::from_utf8_lossy(&message.data),
-                    ),
+                        msg
+                    );
+                    sender_rd.send(msg.to_string()).expect("Failed to send msg");
+                }
                 SwarmEvent::NewListenAddr { address, .. } => {
                     println!("Local node is listening on {address}");
                 }
                 _ => {}
             },
-            msg = receiver.recv() => {
-                swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg.expect("Failed to get msg").as_bytes()).expect("Failed to publish msg");
+            msg = receiver_dr.recv() => {
+                if let Some(msg) = msg{
+                    swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg.as_bytes()).expect("Failed to publish msg");
+                }
+            }
+        }
+    }
+}
+
+async fn ws_to_gossipsub(
+    listener: TcpListener,
+    addr: String,
+    sender_dr: UnboundedSender<String>,
+    mut receiver_rd: UnboundedReceiver<String>,
+) {
+    let (stream, _) = listener.accept().await.unwrap();
+    println!("Incoming TCP connection from: {}", addr);
+    let stream = tokio_tungstenite::accept_async(stream)
+        .await
+        .expect("Error during the websocket handshake occurred");
+    println!("WebSocket connection established: {}", addr);
+    let (mut write, mut read) = stream.split();
+    loop {
+        tokio::select! {
+            Some(msg) = read.next() => {
+                let msg = msg.expect("Failed to get msg");
+                println!("Received a message from {}: {}", addr, msg);
+                write.send(msg.clone()).await.expect("Failed to send msg");
+                sender_dr.send(msg.to_string()).expect("Failed to send msg");
+            }
+            Some(msg) = receiver_rd.recv() => {
+                let msg = Message::Text(msg);
+                write.send(msg.clone()).await.expect("Failed to send msg");
             }
         }
     }
