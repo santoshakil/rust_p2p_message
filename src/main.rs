@@ -7,6 +7,7 @@ use libp2p::{
     swarm::{SwarmBuilder, SwarmEvent},
     tcp, yamux, PeerId, Transport,
 };
+use libp2p_quic as quic;
 use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::hash::{Hash, Hasher};
@@ -19,7 +20,7 @@ struct MyBehaviour {
     mdns: mdns::async_io::Behaviour,
 }
 
-#[tokio::main]
+#[async_std::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Create a random PeerId
     let id_keys = identity::Keypair::generate_ed25519();
@@ -33,11 +34,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .multiplex(yamux::Config::default())
         .timeout(std::time::Duration::from_secs(20))
         .boxed();
-    let quic_transport = libp2p_quic::GenTransport::<libp2p_quic::tokio::Provider>::new(
-        libp2p_quic::Config::new(&id_keys),
-    )
-    .map(|(p, c), _| (p, StreamMuxerBox::new(c)))
-    .boxed();
+    let quic_transport = quic::async_std::Transport::new(quic::Config::new(&id_keys));
     let transport = OrTransport::new(quic_transport, tcp_transport)
         .map(|either_output, _| match either_output {
             Either::Left((peer_id, muxer)) => (peer_id, StreamMuxerBox::new(muxer)),
