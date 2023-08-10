@@ -78,10 +78,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!("Enter messages via STDIN and they will be sent to connected peers using Gossipsub");
 
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
+
     loop {
         tokio::select! {
             connection = listener.accept() => {
                 let (stream, addr) = connection?;
+                let sender = sender.clone();
                 tokio::spawn(async move {
                     println!("Incoming TCP connection from: {}", addr);
                     let stream = tokio_tungstenite::accept_async(stream)
@@ -92,8 +95,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     while let Some(msg) = read.next().await {
                         let msg = msg.expect("Failed to get msg");
                         println!("Received a message from {}: {}", addr, msg);
-                        write.send(msg).await.expect("Failed to send msg");
-                        // TODO: send msg to all connected peers
+                        write.send(msg.clone()).await.expect("Failed to send msg");
+                        sender.send(msg.to_string()).expect("Failed to send msg");
                     }
                 });
             },
@@ -129,6 +132,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("Local node is listening on {address}");
                 }
                 _ => {}
+            },
+            msg = receiver.recv() => {
+                swarm.behaviour_mut().gossipsub.publish(topic.clone(), msg.expect("Failed to get msg").as_bytes()).expect("Failed to publish msg");
             }
         }
     }
