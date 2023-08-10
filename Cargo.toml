@@ -1,0 +1,28 @@
+[package]
+name = "rust_p2p_message"
+version = "0.1.0"
+edition = "2021"
+
+
+[dependencies]
+libp2p-request-response = "0.25"
+libp2p-mplex = "0.40"
+libp2p-yamux = "0.44"
+libp2p-core = "0.40"
+libp2p-quic = { version = "0.9.0-alpha", features = ["tokio", "async-std"] }
+libp2p = { version = "0.52", features = [
+    "request-response",
+    "async-std",
+    "gossipsub",
+    "mdns",
+    "noise",
+    "macros",
+    "tcp",
+    "yamux",
+    "kad",
+] }
+async-std = { version = "1.12", features = ["attributes"] }
+async-trait = "0.1"
+env_logger = "0.10"
+futures = "0.3"
+tokio = { version = "1", features = ["full"] }
