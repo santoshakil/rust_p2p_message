@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .upgrade(upgrade::Version::V1Lazy)
         .authenticate(noise::Config::new(&id_keys).expect("signing libp2p-noise static keypair"))
         .multiplex(yamux::Config::default())
-        .timeout(std::time::Duration::from_secs(20))
+        .timeout(std::time::Duration::from_secs(10))
         .boxed();
     let quic_transport = quic::async_std::Transport::new(quic::Config::new(&id_keys));
     let transport = OrTransport::new(quic_transport, tcp_transport)
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let gossipsub_config = gossipsub::ConfigBuilder::default()
-        .heartbeat_interval(Duration::from_secs(10))
+        .heartbeat_interval(Duration::from_secs(1))
         .validation_mode(gossipsub::ValidationMode::Strict)
         .message_id_fn(message_id_fn)
         // .flood_publish(false)
@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 //     .publish(topic.clone(), line.expect("Stdin not to close").as_bytes()) {
                 //     println!("Publish error: {e:?}");
                 // }
-                let peer = String::from("12D3KooWFra8KsTRs1ZsV4NbJ3ZRpSJK2gCjfUBQCL78SPK99kQm");
+                let peer = String::from("12D3KooW9pcpvJc13GR6CCnzCPTFDQueGJBp6fWnfRNiceDUqzre");
                 let peer_id = PeerId::from_str(&peer).unwrap();
                 let req = GreetRequest { name: line.expect("Stdin not to close") };
                 swarm.behaviour_mut().reqres.send_request(&peer_id, req);
