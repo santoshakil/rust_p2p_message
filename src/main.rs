@@ -51,6 +51,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let message_id_fn = |message: &gossipsub::Message| {
         let mut s = DefaultHasher::new();
         message.data.hash(&mut s);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap();
+        let timestamp = now.as_secs() * 1000 + now.subsec_millis() as u64;
+        let timestamp = timestamp.to_be_bytes();
+        s.write(&timestamp);
         gossipsub::MessageId::from(s.finish().to_string())
     };
 
@@ -58,6 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .heartbeat_interval(Duration::from_secs(10))
         .validation_mode(gossipsub::ValidationMode::Strict)
         .message_id_fn(message_id_fn)
+        // .flood_publish(false)
         .build()
         .expect("Valid config");
 
@@ -106,6 +113,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     for (peer_id, _multiaddr) in list {
                         println!("mDNS discovered a new peer: {peer_id}");
                         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                        // let _x = swarm.behaviour_mut().gossipsub.events;
                     }
                 },
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
