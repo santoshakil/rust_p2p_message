@@ -8,10 +8,13 @@ use libp2p::{
     tcp, yamux, PeerId, Transport,
 };
 use libp2p_quic as quic;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
 use std::{collections::hash_map::DefaultHasher, net::SocketAddr};
 use std::{error::Error, thread};
+use std::{
+    hash::{Hash, Hasher},
+    str::FromStr,
+};
 use tokio::{
     net::TcpListener,
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -22,6 +25,17 @@ use tokio_tungstenite::tungstenite::Message;
 struct MyBehaviour {
     gossipsub: gossipsub::Behaviour,
     mdns: mdns::async_io::Behaviour,
+    reqres: libp2p::request_response::cbor::Behaviour<GreetRequest, GreetResponse>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct GreetRequest {
+    name: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct GreetResponse {
+    message: String,
 }
 
 #[tokio::main]
@@ -78,7 +92,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let mut swarm = {
         let mdns = mdns::async_io::Behaviour::new(mdns::Config::default(), local_peer_id)?;
-        let behaviour = MyBehaviour { gossipsub, mdns };
+        let behaviour = MyBehaviour {
+            gossipsub,
+            mdns,
+            reqres: libp2p::request_response::cbor::Behaviour::<GreetRequest, GreetResponse>::new(
+                [(
+                    libp2p::StreamProtocol::new("/my-cbor-protocol"),
+                    libp2p_request_response::ProtocolSupport::Full,
+                )],
+                libp2p::request_response::Config::default(),
+            ),
+        };
         SwarmBuilder::with_async_std_executor(transport, behaviour, local_peer_id).build()
     };
 
@@ -102,18 +126,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     loop {
         tokio::select! {
             line = stdin.select_next_some() => {
-                if let Err(e) = swarm
-                    .behaviour_mut().gossipsub
-                    .publish(topic.clone(), line.expect("Stdin not to close").as_bytes()) {
-                    println!("Publish error: {e:?}");
-                }
+                // if let Err(e) = swarm
+                //     .behaviour_mut().gossipsub
+                //     .publish(topic.clone(), line.expect("Stdin not to close").as_bytes()) {
+                //     println!("Publish error: {e:?}");
+                // }
+                let peer = String::from("12D3KooWFra8KsTRs1ZsV4NbJ3ZRpSJK2gCjfUBQCL78SPK99kQm");
+                let peer_id = PeerId::from_str(&peer).unwrap();
+                let req = GreetRequest { name: line.expect("Stdin not to close") };
+                swarm.behaviour_mut().reqres.send_request(&peer_id, req);
             },
             event = swarm.select_next_some() => match event {
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                     for (peer_id, _multiaddr) in list {
                         println!("mDNS discovered a new peer: {peer_id}");
                         swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
-                        // let _x = swarm.behaviour_mut().gossipsub.events;
+                        let req = GreetRequest { name: "Hello!!!".to_string() };
+                        swarm.behaviour_mut().reqres.send_request(&peer_id, req);
                     }
                 },
                 SwarmEvent::Behaviour(MyBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
@@ -133,11 +162,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         msg
                     );
                     sender_rd.send(msg.to_string()).expect("Failed to send msg");
-                }
+                },
                 SwarmEvent::NewListenAddr { address, .. } => {
                     println!("Local node is listening on {address}");
-                }
-                _ => {}
+                },
+                SwarmEvent::Behaviour(MyBehaviourEvent::Reqres(v)) => {
+                    type ReqResType = libp2p_request_response::Event::<GreetRequest, GreetResponse>;
+                    match v {
+                        ReqResType::Message {peer, message } => {
+                            println!("Got message from peer: {} with message: {:?}", peer, message);
+                        },
+                        _ => {}
+                    }
+                },
+                _ => {},
             },
             msg = receiver_dr.recv() => {
                 if let Some(msg) = msg{
