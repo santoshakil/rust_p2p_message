@@ -8,7 +8,6 @@ use libp2p::{
     tcp, yamux, PeerId, Transport,
 };
 use libp2p_quic as quic;
-use std::time::Duration;
 use std::{collections::hash_map::DefaultHasher, net::SocketAddr};
 use std::{error::Error, thread};
 use std::{
