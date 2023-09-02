@@ -20,6 +20,8 @@ use tokio::{
 };
 use tokio_tungstenite::tungstenite::Message;
 
+type ReqResType = libp2p_request_response::Event<GreetRequest, GreetResponse>;
+
 #[derive(NetworkBehaviour)]
 struct MyBehaviour {
     gossipsub: gossipsub::Behaviour,
@@ -125,7 +127,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 //     .publish(topic.clone(), line.expect("Stdin not to close").as_bytes()) {
                 //     println!("Publish error: {e:?}");
                 // }
-                let peer = String::from("12D3KooW9pcpvJc13GR6CCnzCPTFDQueGJBp6fWnfRNiceDUqzre");
+                let peer = String::from("12D3KooWJw3Yz2h3ARNzNGiQqP1EcBKDtftxxL8p2rDAkRHf66hc");
                 let peer_id = PeerId::from_str(&peer).unwrap();
                 let req = GreetRequest { name: line.expect("Stdin not to close") };
                 swarm.behaviour_mut().reqres.send_request(&peer_id, req);
@@ -161,7 +163,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     println!("Local node is listening on {address}");
                 },
                 SwarmEvent::Behaviour(MyBehaviourEvent::Reqres(v)) => {
-                    type ReqResType = libp2p_request_response::Event::<GreetRequest, GreetResponse>;
                     match v {
                         ReqResType::Message {peer, message } => {
                             println!("Got message from peer: {} with message: {:?}", peer, message);
