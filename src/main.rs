@@ -114,9 +114,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     _ = thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().unwrap();
-        rt.block_on(async move {
-            ws_to_gossipsub(listener, addr, sender_dr, receiver_rd).await;
-        });
+        rt.block_on(ws_to_gossipsub(listener, addr, sender_dr, receiver_rd));
     });
 
     loop {
